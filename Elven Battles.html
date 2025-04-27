@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>精灵200关闯关对战</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #2c3e50;
+            color: white;
+            text-align: center;
+            margin: 0;
+            padding: 20px;
+        }
+
+        #gameContainer {
+            max-width: 800px;
+            margin: 0 auto;
+            background: rgba(0,0,0,0.7);
+            padding: 20px;
+            border-radius: 15px;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 20px;
+        }
+
+        .battle-area {
+            display: flex;
+            justify-content: space-around;
+            margin: 30px 0;
+        }
+
+        .combatant {
+            width: 200px;
+            padding: 20px;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.1);
+            text-align: left;
+        }
+
+        .hp-bar {
+            height: 20px;
+            background: #e74c3c;
+            border-radius: 10px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+
+        .hp-fill {
+            height: 100%;
+            background: #2ecc71;
+            transition: width 0.3s ease;
+        }
+
+        .controls {
+            margin: 20px 0;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .action-btn {
+            padding: 12px 25px;
+            font-size: 18px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: 
+                transform 0.1s ease,
+                opacity 0.3s ease,
+                background 0.3s ease;
+            opacity: 1;
+            background: #34495e;
+            color: white;
+            min-width: 100px;
+            transform: scale(1);
+        }
+
+        .action-btn:active {
+            transform: scale(0.95);
+        }
+
+        .cooldown {
+            opacity: 0.5;
+            background: #1a252f !important;
+            cursor: default;
+            transform: scale(0.95);
+        }
+
+        .attack-btn { background: #e67e22; }
+        .defend-btn { background: #2ecc71; }
+
+        .status-message {
+            height: 120px;
+            margin: 20px 0;
+            padding: 10px;
+            background: rgba(0,0,0,0.5);
+            border-radius: 5px;
+            overflow-y: auto;
+            text-align: left;
+        }
+
+        .game-over {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9);
+            padding: 30px;
+            border-radius: 15px;
+            color: white;
+            text-align: center;
+            display: none;
+        }
+
+        .restart-btn {
+            padding: 15px 30px;
+            font-size: 20px;
+            background: #2ecc71;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <div class="level-info">第 <span id="currentLevel">1</span> 关</div>
+        <h1>精灵对战</h1>
+        
+        <div class="battle-area">
+            <div class="combatant">
+                <h2>玩家</h2>
+                <div>HP: <span id="pHP">80</span>/<span id="pMaxHP">80</span></div>
+                <div class="hp-bar">
+                    <div class="hp-fill" id="pHPFill" style="width: 100%"></div>
+                </div>
+            </div>
+
+            <div class="combatant">
+                <h2>野生精灵</h2>
+                <div>HP: <span id="eHP">80</span>/<span id="eMaxHP">80</span></div>
+                <div class="hp-bar">
+                    <div class="hp-fill" id="eHPFill" style="width: 100%"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="action-btn attack-btn" id="btnAttack">攻击</button>
+            <button class="action-btn defend-btn" id="btnDefend">防御</button>
+        </div>
+
+        <div class="status-message" id="battleLog"></div>
+    </div>
+
+    <div class="game-over" id="gameOverScreen">
+        <h2>游戏结束</h2>
+        <p>已返回第 <span id="finalLevel">1</span> 关</p>
+        <button class="restart-btn" id="btnRestart">重新开始</button>
+    </div>
+    <script src="/ai gamessdk.com/sdk.js"></script>
+<script>
+class BattleSystem {
+    constructor() {
+        this.currentLevel = 1;
+        this.maxLevel = 200;
+        this.isGameOver = false;
+        this.player = {
+            hp: 80,
+            maxHP: 80,
+            attack: 15,
+            defense: 5,
+            isDefending: false
+        };
+        
+        this.enemy = this.generateEnemy();
+        this.isProcessing = false;
+        this.turnCount = 1;
+    }
+
+    generateEnemy() {
+        return {
+            hp: 80 * this.currentLevel,
+            maxHP: 80 * this.currentLevel,
+            attack: 6 * this.currentLevel,
+            defense: 2 * this.currentLevel
+        };
+    }
+
+    async processAction(action) {
+        if (this.isGameOver || this.isProcessing) return;
+        
+        this.isProcessing = true;
+        try {
+            await action();
+            await this.waitForTurn();
+        } catch (error) {
+            console.error('Error during action processing:', error);
+        } finally {
+            this.isProcessing = false;
+        }
+    }
+
+    async waitForTurn() {
+        return new Promise(resolve => {
+            setTimeout(() => {
+                if (!this.isGameOver) {
+                    this.enemyTurn();
+                    this.checkBattleEnd();
+                }
+                resolve();
+            }, 1000);
+        });
+    }
+
+    playerAttack() {
+        const baseDamage = 30 + Math.floor(this.player.attack * 1.8) + Math.floor(Math.random() * 5);
+        const damage = Math.max(baseDamage - this.enemy.defense, 5);
+        
+        this.enemy.hp = Math.max(this.enemy.hp - damage, 0);
+        this.logAction(`玩家发动攻击！造成 ${damage} 点伤害`);
+        this.updateUI();
+    }
+
+    playerDefend() {
+        this.player.isDefending = true;
+        const defenseBoost = 12 + Math.floor(this.player.defense * 1.5);
+        this.logAction(`玩家进入防御姿态（减伤${defenseBoost}%）`);
+        setTimeout(() => {
+            if (!this.isGameOver) {
+                this.player.isDefending = false;
+                this.logAction("防御姿态解除");
+            }
+        }, 2000);
+    }
+
+    enemyTurn() {
+        const baseDamage = 5 + Math.floor(this.enemy.attack * 0.4);
+        let finalDamage = baseDamage;
+        
+        if (this.player.isDefending) {
+            const reduction = 12 + Math.floor(this.player.defense * 1.5);
+            finalDamage = Math.max(finalDamage - reduction, 2);
+            this.logAction(`（防御中）受到伤害减轻！`);
+        }
+
+        this.player.hp = Math.max(this.player.hp - finalDamage, 0);
+        this.logAction(`敌人发动攻击！造成 ${finalDamage} 点伤害`);
+        this.updateUI();
+    }
+
+    levelUp() {
+        if (this.currentLevel >= this.maxLevel) return;
+        
+        this.currentLevel++;
+        const baseHP = 80 * this.currentLevel;
+        this.player.maxHP = baseHP;
+        this.player.hp = baseHP;
+        this.player.attack += 10;
+        this.player.defense += 7;
+        this.enemy = this.generateEnemy();
+        this.logAction(`通关第 ${this.currentLevel-1} 关！进入第 ${this.currentLevel} 关！`);
+        this.updateUI();
+    }
+
+    checkBattleEnd() {
+        if (this.player.hp <= 0) {
+            this.endGame();
+        } else if (this.enemy.hp <= 0) {
+            this.levelUp();
+        }
+    }
+
+    endGame() {
+        this.isGameOver = true;
+        document.getElementById('gameOverScreen').style.display = 'block';
+        document.querySelectorAll('.action-btn').forEach(btn => {
+            btn.classList.remove('cooldown');
+        });
+    }
+
+    resetGame() {
+        this.currentLevel = 1;
+        this.isGameOver = false;
+        this.player.hp = 80;
+        this.player.maxHP = 80;
+        this.player.attack = 15;
+        this.player.defense = 5;
+        this.enemy = this.generateEnemy();
+        document.getElementById('gameOverScreen').style.display = 'none';
+        document.querySelectorAll('.action-btn').forEach(btn => {
+            btn.classList.remove('cooldown');
+        });
+        this.updateUI();
+    }
+
+    updateUI() {
+        document.getElementById('pHP').textContent = this.player.hp;
+        document.getElementById('eHP').textContent = this.enemy.hp;
+        document.getElementById('eMaxHP').textContent = this.enemy.maxHP;
+        document.getElementById('pMaxHP').textContent = this.player.maxHP;
+        document.getElementById('currentLevel').textContent = this.currentLevel;
+        
+        document.getElementById('pHPFill').style.width = 
+            (this.player.hp / this.player.maxHP * 100) + '%';
+        document.getElementById('eHPFill').style.width = 
+            (this.enemy.hp / this.enemy.maxHP * 100) + '%';
+    }
+
+    logAction(text) {
+        const logElem = document.getElementById('battleLog');
+        const entry = document.createElement('div');
+        entry.textContent = `[回合 ${this.turnCount}] ${text}`;
+        logElem.appendChild(entry);
+        logElem.scrollTop = logElem.scrollHeight;
+        this.turnCount++;
+    }
+}
+
+const battle = new BattleSystem();
+
+document.getElementById('btnAttack').addEventListener('click', async () => {
+    const btn = document.getElementById('btnAttack');
+    if (btn.classList.contains('cooldown') || battle.isGameOver) return;
+    
+    btn.classList.add('cooldown');
+    try {
+        battle.playerAttack();
+        await battle.processAction(() => {});
+    } finally {
+        btn.classList.remove('cooldown');
+    }
+});
+
+document.getElementById('btnDefend').addEventListener('click', async () => {
+    const btn = document.getElementById('btnDefend');
+    if (btn.classList.contains('cooldown') || battle.isGameOver) return;
+    
+    btn.classList.add('cooldown');
+    try {
+        battle.playerDefend();
+        await battle.processAction(() => {});
+    } finally {
+        btn.classList.remove('cooldown');
+    }
+});
+
+document.getElementById('btnRestart').addEventListener('click', () => {
+    battle.resetGame();
+});
+
+battle.updateUI();
+</script>
+</body>
+</html>
